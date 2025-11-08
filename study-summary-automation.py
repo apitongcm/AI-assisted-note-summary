@@ -1,18 +1,17 @@
 #the purpose of this automation tool is to summarize notes for students who wants to maximize their time in studying
 #The tool will get the input as .pdf or .ppt and will return .docx with highlights and summary for better cognitive presentation
-
 import sys
 import fitz  # PyMuPDF
 from pptx import Presentation
 from docx import Document
 from transformers import BartTokenizer, BartForConditionalGeneration, pipeline
-
+from pathlib import Path
+import subprocess
 #************************************************************************
 # For checking if for the location of local cache memory for Bart
 #************************************************************************
 #from huggingface_hub import hf_hub_download, constants
 #print(constants.HF_HUB_CACHE)
-
 
 
 #*************************************************************************
@@ -28,18 +27,29 @@ def pdfToText(pdf_path):
     return text
 
 #Function that converts ppt presentation into text format
-def pptToText(ppt_path):
+def pptToText(ppt_path : Path , pdfpath_out : Path = None):
 
-     #to be follow for the pptx presentation - status buggy
-    #*******************************************************
-    openPPTFile = Presentation(ppt_path)
-    text = ""
-    #store all the text inside the ppt including text inside shape
-    for slide in openPPTFile.slides:
-        for shape in slide.shapes:
-            if hasattr(shape, "text"):
-                text += shape.text + "\n"
+    #Convert a PowerPoint (.pptx) file to PDF using LibreOffice (cross-platform).
+    if pdfpath_out is None:
+         pdfpath_out = ppt_path.parent
+
+    pdf_out = pdfpath_out/"outputpdf"
+    
+    pdfOutput = pdf_out/(str(Path(ppt_path).stem) + ".pdf")
+    print(f"Converting {Path(ppt_path).name} → {Path(pdfOutput).name} ...")
+
+    subprocess.run([
+        "libreoffice",
+        "--headless",
+        "--convert-to", "pdf",
+        str(ppt_path),
+        "--outdir", str(pdf_out)
+    ], check=True)
+
+    print(f"Done: {pdfOutput}")
+    text = pdfToText(pdfOutput)
     return text
+
 
 #Function that will write the extracted information into .docx format
 def createDocxFile(context, filename):
@@ -84,7 +94,7 @@ def summarizeContext(context):
              print(f" > Summarizing chunk {i+1}/{len(chunks)}")
              
              #AI text-summarization pipeline for model (BART)
-             result = summarizer(chunk, max_length=200, min_length=80, do_sample=False)[0]['summary_text']
+             result = summarizer(chunk, max_length=100, min_length=80, do_sample=False)[0]['summary_text']
              summaries.append(result)
         
         return "\n\n".join(summaries)
@@ -92,43 +102,82 @@ def summarizeContext(context):
 
 
 def main():
-    if len(sys.argv) < 3:
+    if len(sys.argv) < 2:
         #Instruct user on the format of using the tool.
         print("\nUsage:")
-        print("  python3 study-summary-automation.py extract <input.pdf|input.pptx>")
-        print("  python3 study-summary-automation.py summarize <input.docx>\n")
+        print("  python3 study-summary-automation.py extract\n")
+        print("  python3 study-summary-automation.py summarize\n")
         sys.exit(1)
 
     instruction = sys.argv[1]
-    documentPath = sys.argv[2]
+    #documentPath = sys.argv[2]
+    base_path = Path.cwd()
+    inputsDirectory = base_path /"selectedInputs"
+    outputsDirectory = base_path/"output"
 
+    #If the target folder does not exist
+    if not inputsDirectory.exists():
+        print(f"Folder not found: {inputsDirectory}")
+        sys.exit(1)
 
     #choosing instruction 
     match instruction:
         case "extract":
-            print("\nExtracting data from a document(.pdf)... Please wait ...")
+            
+            # Find all PDF and PPTX files
+            files = [f for f in inputsDirectory.iterdir() if f.suffix.lower() in [".pdf", ".pptx"]]
 
-            #validates if file is either pdf or ppt
-            if documentPath.endswith(".pdf"):
-                context = pdfToText(documentPath)
+            if not files:
+                print("No PDF or PPTX files found in 'selectedInputs/'")
+                sys.exit(0)
 
-            #to be follow for the pptx presentation
-            #********************************************************
-            #elif documentPath.endswith(".pptx"):
-                #context = pptToText(documentPath)
-            else:
-                print("Unsupported file format. Kindly use PDF to use the tool.")
-                sys.exit(1)
+            #perform extraction to all the files that satisfies the requirement
+            for file in files:
+                print(f"Extracting from: {file.name}")
 
-            #paste all the extracted data into .docx format
-            createDocxFile(context, f"{documentPath}_extracted.docx")
+                #validates if file is either pdf or ppt
+                if str(file).endswith(".pdf"):
+                    context = pdfToText(str(file))
+                    newFileName = file.name.replace(".pdf","_extracted.docx")
+
+                #to be follow for the pptx presentation
+                #********************************************************
+                elif str(file).endswith(".pptx"):
+                    context = pptToText(str(file), outputsDirectory)
+                    newFileName = file.name.replace(".pptx","_extracted.docx")
+
+                else:
+                    print("Unsupported file format. Kindly use PDF to use the tool.")
+                    sys.exit(1)
+
+                print(f" Finished processing {file.name}\n")
+
+
+                #paste all the extracted data into .docx format
+               
+                newFilePath = outputsDirectory/newFileName
+                createDocxFile(context, outputsDirectory/f"{newFilePath}")
+            
         
         case "summarize":
-             print("\nConverting document(.docx) into study notes... Please wait...")
+              # Find all DOCX files
+            files = [f for f in inputsDirectory.iterdir() if f.suffix.lower() in [".docx"]]
 
-             context = readDocument(documentPath)
-             summarized = summarizeContext(context)
-             createDocxFile(summarized, f"{documentPath}_summary.docx")
+            if not files:
+                print("No DOCX files found in 'selectedInputs/'")
+                sys.exit(0)
+
+             #perform summarization to all the files that satisfies the requirement
+            for file in files:
+                print(f"Summarizing from: {file.name}")
+                print(f"\nConverting {file.name} into study notes... Please wait...")
+
+                context = readDocument(str(file))
+                summarized = summarizeContext(context)
+
+                newFileName = file.name.replace("_extracted.docx","_summary.docx")
+                newFilePath = outputsDirectory/newFileName
+                createDocxFile(summarized, f"{newFilePath}")
 
         case _: #default case - if neither of the two selection above
               print("Invalid command. Use either 'extract' or 'summarize'." )
