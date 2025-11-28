@@ -70,7 +70,7 @@ def summarizeContext(context):
         #tokenizer = BartTokenizer.from_pretrained("facebook/bart-large-cnn", local_files_only=True)
         #model = BartForConditionalGeneration.from_pretrained("facebook/bart-large-cnn", local_files_only=True)
 
-        OLLAMA_URL = "http://192.168.1.11:11434/api/generate"   # change to your running ollama server for this situation my current server is running in a private network. 
+        OLLAMA_URL = "http://192.168.1.18:11434/api/generate"   # change to your running ollama server for this situation my current server is running in a private network. 
         MODEL_NAME = "llama3:latest"  
 
 
@@ -94,11 +94,10 @@ def summarizeContext(context):
              payload = {
                 "model": MODEL_NAME,
                 "prompt": f"""
-                Summarize the following text into a Markdown table with two columns:
-                - Column 1: Key Point (very short)
-                - Column 2: Explanation
-                Only include important items.
-                Output ONLY the Markdown table.
+                You are an expert summarization and note-taking assistant. 
+                Your task is to read the following document text and extract the most critical information,
+                concepts, and findings. Present your entire output as a single, concise list of bullet points.
+                Return summary and concluding sentences without summarizing. Begin immediately with the first bullet point.
 
                 Text:
                 {chunk}
